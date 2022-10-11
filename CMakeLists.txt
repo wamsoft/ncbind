@@ -27,11 +27,3 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     tp_stub
 )
 
-add_library(testbind SHARED
-    testbind.cpp
-)
-
-target_link_libraries(testbind PUBLIC
-    tp_stub
-    ncbind
-)
