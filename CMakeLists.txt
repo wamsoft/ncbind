@@ -10,7 +10,9 @@ set(PROJECT_VERSION 1.00)
 
 project(${PROJECT_NAME} VERSION ${PROJECT_VERSION})
 
+if(NOT TARGET tp_stub)
 add_subdirectory(../tp_stub ${CMAKE_CURRENT_BINARY_DIR}/tp_stub)
+endif()
 
 add_library(${PROJECT_NAME} STATIC
     ncbind.cpp
@@ -27,11 +29,3 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     tp_stub
 )
 
-add_library(testbind SHARED
-    testbind.cpp
-)
-
-target_link_libraries(testbind PUBLIC
-    tp_stub
-    ncbind
-)
