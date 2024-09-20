@@ -422,11 +422,17 @@ struct ncbNarrowCharConvertor {
 		inline void operator()(DST &dst, tTJSVariant const &src) {
 			if (ncbTypedefs::GetVariantType(src) == tvtString) {
 				tTJSString s(src.AsStringNoAddRef());
+#ifdef NCBIND_UTF8
+				tjs_int len = TVPWideCharToUtf8String( s.c_str(), NULL );
+				_nstr = new tjs_nchar[len+1];
+				TVPWideCharToUtf8String( s.c_str(), _nstr );
+				_nstr[len] = 0;
+#else
 				tjs_int len = s.GetNarrowStrLen();
-
 //				NCB_LOG_W("ncbVariatToNChar::operator() > new tjs_nchar[]");
 				_nstr = new tjs_nchar[len+1];
 				s.ToNarrowStr(_nstr, len+1);
+#endif
 			}
 			dst = static_cast<DST>(_nstr);
 		}
@@ -437,7 +443,21 @@ struct ncbNarrowCharConvertor {
 		template <typename SRC>
 		inline void operator()(tTJSVariant &dst, SRC const &src) const {
 //			NCB_LOG_2("ncbNCharToVariatTo::operator() : ", src);
+#ifdef NCBIND_UTF8
+			tjs_int len = TVPUtf8ToWideCharString(src, NULL );
+			if( len > 0 ) {
+				auto buf = std::make_unique<tjs_char[]>(len);
+				if (buf) {
+					tjs_char *dat = buf->get();
+					TVPUtf8ToWideCharString(src, dat);
+					dst = tTJSString(dat, len);
+				}
+			} else {
+				dst = TJS_W("");
+			}
+#else
 			dst = tTJSString(src);
+#endif
 		}
 	};
 };
@@ -489,10 +509,17 @@ struct ncbStringConvertor {
 		dst = ConvT::ToTarget<STR>::Get(&_temp);
 	}
 	inline void set(tTJSString const &str, DefsT::NumTag<sizeof(tjs_nchar)>) { // for Narrow char
+#ifdef NCBIND_UTF8
+		tjs_int len = TVPWideCharToUtf8String( str.c_str(), NULL );
+		tjs_nchar tmp[len];
+	    TVPWideCharToUtf8String( str.c_str(), tmp );
+		_temp.assign(tmp, len);
+#else
 		tjs_int len = str.GetNarrowStrLen();
 		tjs_nchar tmp[len+1];
 		str.ToNarrowStr(tmp, len+1);
 		_temp.assign(tmp, len);
+#endif
 	}
 	inline void set(tTJSString const &str, DefsT::NumTag<sizeof(tjs_char)>) { // for Wide char
 		_temp = str.c_str();
@@ -2382,5 +2409,9 @@ private:
 #define NCB_PRE_UNREGIST_CALLBACK(cb)  NCB_REGISTER_CALLBACK(PreRegist,  0, &cb, 0_ ## cb)
 #define NCB_POST_UNREGIST_CALLBACK(cb) NCB_REGISTER_CALLBACK(PostRegist, 0, &cb, 0_ ## cb)
 
+////////////////////////////////////////
+/// レジスト前後のコールバック登録
+#define NCB_DLL_HINSTANCE gDllInstance
+extern HINSTANCE gDllInstance;
 
 #endif
