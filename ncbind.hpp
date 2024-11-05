@@ -685,6 +685,13 @@ struct ncbPropAccessor {
 		_obj->PropGetByNum(f, ofs, &var, obj);
 		return _toTarget(var, tag);
 	}
+	tjs_intptr_t getIntPtrValue(IndexT ofs, tjs_intptr_t defaultValue=0) {
+		if (HasValue(ofs)) {
+			return GetValue(ofs, DefsT::Tag<tjs_intptr_t>());
+		} else {
+			return defaultValue;
+		}
+	}
 	tjs_int getIntValue(IndexT ofs, tjs_int defaultValue=0) {
 		if (HasValue(ofs)) {
 			return GetValue(ofs, DefsT::Tag<tjs_int>());
@@ -717,6 +724,13 @@ struct ncbPropAccessor {
 		VariantT var;
 		_obj->PropGet(f, key, hint, &var, obj);
 		return _toTarget(var, tag);
+	}
+	tjs_intptr_t getIntPtrValue(KeyT key, tjs_intptr_t defaultValue=0) {
+		if (HasValue(key)) {
+			return GetValue(key, DefsT::Tag<tjs_intptr_t>());
+		} else {
+			return defaultValue;
+		}
 	}
 	tjs_int getIntValue(KeyT key, tjs_int defaultValue=0) {
 		if (HasValue(key)) {
