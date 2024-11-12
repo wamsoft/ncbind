@@ -633,8 +633,6 @@ NCB_SET_TOVALUE_CONVERTOR(  iTJSDispatch2 const*, ncbDispatchConvertor);
 	といったような感じで適当に
  */
 
-static ttstr empty_string("");
-
 // Dicionary/Array 向けラッパ(手抜き実装)
 struct ncbPropAccessor {
 	typedef ncbTypedefs   DefsT;
