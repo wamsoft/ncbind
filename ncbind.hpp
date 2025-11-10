@@ -480,7 +480,7 @@ struct ncbWideCharConvertor {
 		template <typename DST>
 		inline void operator()(DST &dst, tTJSVariant const &src) {
 			const tjs_char *str = src.GetString();
-			dst = static_cast<DST>(str ? str : L"");
+			dst = static_cast<DST>(str ? str : TJS_W(""));
 		}
 	};
 };
@@ -673,7 +673,7 @@ struct ncbPropAccessor {
 	}
 	CountT GetArrayCount() const {
 		VariantT var;
-		_obj->PropGet(0, L"count", 0, &var, _obj);
+		_obj->PropGet(0, TJS_W("count"), 0, &var, _obj);
 		return (CountT)var;
 	}
 	template <typename TargetT>
