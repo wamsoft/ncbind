@@ -32,3 +32,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     tp_stub
 )
 
+if (TVP_STATIC_PLUGIN)
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    TVP_STATIC_PLUGIN
+)
+endif()
