@@ -2424,6 +2424,9 @@ private:
 
 ////////////////////////////////////////
 /// レジスト前後のコールバック登録
+
+#ifdef _WIN32
 #define NCB_DLL_HINSTANCE gDllInstance
 extern HINSTANCE gDllInstance;
+#endif
 #endif
