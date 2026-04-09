@@ -106,14 +106,6 @@ EXPORT(HRESULT) V2Unlink()
 	return S_OK;
 }
 
-
-//---------------------------------------------------------------------------
-// static変数の実体
-
-// auto register 先頭ポインタ
-ncbAutoRegister::ThisClassT const*
-ncbAutoRegister::_top[ncbAutoRegister::LINE_COUNT] = NCB_INNER_AUTOREGISTER_LINES_INSTANCE;
-
 #ifdef TVP_STATIC_PLUGIN
 
 #if defined(_MSC_VER)
