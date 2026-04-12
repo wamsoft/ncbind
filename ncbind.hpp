@@ -4,6 +4,24 @@
 #include "tp_stub.h"
 #include "ncb_invoke.hpp"
 
+#ifdef TVP_STATIC_PLUGIN
+
+#define NCB_TOSTR(x) TJS_W(#x)
+#define NCB_XTOSTR(x) NCB_TOSTR(x)
+#define NCB_CAT(a, b) a##b
+#define NCB_XCAT(a, b) NCB_CAT(a, b)
+
+// 静的リンク時に同名だと _topへのアクセスが重複して変なことになるので
+// プラグイン毎に全部名前を差し替える対応
+#define ncbAutoRegister NCB_XCAT(TVP_PLUGIN_NAME, ncbAutoRegister)
+#define ncbNativeClassAutoRegister NCB_XCAT(TVP_PLUGIN_NAME, ncbNativeClassAutoRegister)
+#define ncbAttachTJS2ClassAutoRegister NCB_XCAT(TVP_PLUGIN_NAME, ncbAttachTJS2ClassAutoRegister)
+#define ncbRequireClassAutoRegister NCB_XCAT(TVP_PLUGIN_NAME, ncbRequireClassAutoRegister)
+#define ncbNativeFunctionAutoRegister NCB_XCAT(TVP_PLUGIN_NAME, ncbNativeFunctionAutoRegister)
+#define ncbCallbackAutoRegister NCB_XCAT(TVP_PLUGIN_NAME, ncbCallbackAutoRegister)
+
+#endif
+
 ////////////////////////////////////////
 // ログ出力用マクロ
 
@@ -2167,10 +2185,10 @@ struct ncbAutoRegister {
 		LINE_COUNT };
 #define NCB_INNER_AUTOREGISTER_LINES_INSTANCE { 0, 0, 0 }
 
-	ncbAutoRegister(LineT line) : _next(GetTop()[line]) { GetTop()[line] = this; }
+	ncbAutoRegister(LineT line) : _next(_top[line]) { _top[line] = this; }
 
-	static void AllRegist(  LineT line) { NCB_LOG_2(TJS_W("AllRegist:"),   line); for (ThisClassT const* p = GetTop()[line]; p; p = p->_next) p->Regist();   }
-	static void AllUnregist(LineT line) { NCB_LOG_2(TJS_W("AllUnregist:"), line); for (ThisClassT const* p = GetTop()[line]; p; p = p->_next) p->Unregist(); }
+	static void AllRegist(  LineT line) { NCB_LOG_2(TJS_W("AllRegist:"),   line); for (ThisClassT const* p = _top[line]; p; p = p->_next) p->Regist();   }
+	static void AllUnregist(LineT line) { NCB_LOG_2(TJS_W("AllUnregist:"), line); for (ThisClassT const* p = _top[line]; p; p = p->_next) p->Unregist(); }
 
 	static void AllRegist()   { for (int line = 0; line < LINE_COUNT; line++) AllRegist(  static_cast<LineT>(line)); }
 	static void AllUnregist() { for (int line = 0; line < LINE_COUNT; line++) AllUnregist(static_cast<LineT>(line)); }
@@ -2179,11 +2197,8 @@ protected:
 	virtual void Unregist() const = 0;
 private:
 	ncbAutoRegister();
-	static ThisClassT const** GetTop() {
-		static ThisClassT const* top[LINE_COUNT] = NCB_INNER_AUTOREGISTER_LINES_INSTANCE;
-		return top;
-	}
 	/****/ ThisClassT const* _next;
+	inline static ThisClassT const* _top[LINE_COUNT] = NCB_INNER_AUTOREGISTER_LINES_INSTANCE;
 };
 
 ////////////////////////////////////////
@@ -2349,6 +2364,7 @@ protected:
 	}
 	template <typename T>
 	static inline void RegistItem(iTJSDispatch2 *dsp, NameT name, T *mobj) {
+		NCB_LOG_2(TJS_W("  RegistItem: "), name);
 		if (mobj) {
 			tTJSVariant val(mobj);
 			mobj->Release();
