@@ -61,6 +61,8 @@ EXPORT(HRESULT) V2Link(iTVPFunctionExporter *exporter)
 
 	NCB_LOG_W("V2Link");
 
+	TVPAddLog(NCB_XTOSTR(TVP_PLUGIN_NAME));
+
 	// AutoRegisterで登録されたクラス等を登録する
 	ncbAutoRegister::AllRegist();
 
@@ -108,23 +110,12 @@ EXPORT(HRESULT) V2Unlink()
 
 #ifdef TVP_STATIC_PLUGIN
 
-#if defined(_MSC_VER)
-    #define EXPORT_USED __declspec(dllexport)
-#else
-	#define EXPORT_USED __attribute__((visibility("default"), used))
-#endif
-
-#define str(x) TJS_W(#x)
-#define strx(x) str(x)
-#define CAT(a, b) a##b
-#define XCAT(a, b) CAT(a, b)
-#define MAKE_FUNC(name) XCAT(krkrz_plugin_, name)
-
 // リンク用エントリ関数
 // _krkrz_plugin_プロジェクト名 で関数が作られる
-extern "C" EXPORT_USED void STDCALL MAKE_FUNC(TVP_PLUGIN_NAME)() {
+extern "C" void STDCALL NCB_XCAT(krkrz_plugin_,TVP_PLUGIN_NAME)() 
+{
 	static iTVPStaticPlugin plugin;
-    plugin.name = strx(TVP_PLUGIN_NAME);
+    plugin.name = NCB_XTOSTR(TVP_PLUGIN_NAME);
 	plugin.link = (int32_t (STDCALL *)(iTVPFunctionExporter *))V2Link;
 	plugin.unlink = (int32_t (STDCALL *)(void))V2Unlink;
 	TVPRegisterPlugin(&plugin);
