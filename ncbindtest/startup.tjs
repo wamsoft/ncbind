@@ -1,0 +1,62 @@
+// ncbind is-a 単一継承 検証スクリプト
+// 使い方: krkrz(64).exe <このフォルダ>  (ncbindtest.dll を exe 隣 or plugin に配置)
+
+Plugins.link("ncbindtest.dll");
+
+var pass = 0, fail = 0;
+function ok(cond, msg) {
+	if (cond) { pass++; Debug.message("OK   : " + msg); }
+	else      { fail++; Debug.message("FAIL : " + msg); }
+}
+
+// 1. 基底クラス単体
+var b = new TestBase();
+b.setBase(5);
+ok(b.getBase() == 5,          "Base.getBase");
+ok(b.who() == "TestBase",     "Base.who");
+ok(b.baseValue == 5,          "Base.baseValue (RO prop)");
+ok(b instanceof "TestBase",   "Base instanceof TestBase");
+invalidate b;
+
+// 2. 派生: 基底メンバを全継承 + who を override
+var d = new TestDerived();
+d.setBase(7);                 // ← 基底から継承したメソッド
+d.setDerived(9);
+ok(d.getBase() == 7,          "Derived inherits getBase()");
+ok(d.getDerived() == 9,       "Derived.getDerived()");
+ok(d.baseValue == 7,          "Derived inherits baseValue prop");
+ok(d.who() == "TestDerived",  "Derived.who override wins");
+ok(d instanceof "TestDerived","Derived instanceof TestDerived");
+ok(d instanceof "TestBase",   "Derived instanceof TestBase (auto)");
+// 型別ポインタ取り出し (単一継承なので offset0 = 同一実体を指す)
+var pd = ncbtestAsDerivedPtr(d);
+var pb = ncbtestAsBasePtr(d);
+ok(pd == pb,                  "Derived: Derived*/Base* は同一実体 (offset0)");
+ok(d.baseAddr() == pb,        "Derived: 継承 baseAddr() == 取り出した Base*");
+invalidate d;
+
+// 3. 多段継承 (Grand : Derived : Base)
+var g = new TestGrand();
+g.setBase(1); g.setDerived(2); g.setGrand(3);
+ok(g.getBase() == 1,          "Grand inherits getBase()");
+ok(g.getDerived() == 2,       "Grand inherits getDerived()");
+ok(g.getGrand() == 3,         "Grand.getGrand()");
+ok(g.who() == "TestDerived",  "Grand inherits Derived.who");
+ok(g instanceof "TestGrand",  "Grand instanceof TestGrand");
+ok(g instanceof "TestDerived","Grand instanceof TestDerived (auto)");
+ok(g instanceof "TestBase",   "Grand instanceof TestBase (auto)");
+invalidate g;
+
+// 4. オフセット継承 (TestOffChild : Prefix, TestBase) で static_cast の効きを確認
+var c = new TestOffChild();
+c.setBase(42);                // 基底メソッドが正しい Base* で動くか
+ok(c.getBase() == 42,         "OffChild inherits getBase() (valid Base*)");
+ok(c instanceof "TestBase",   "OffChild instanceof TestBase");
+var cp = ncbtestAsOffChildPtr(c);  // 子ポインタ
+var bp = ncbtestAsOffBasePtr(c);   // Base* (アップキャスト)
+ok(cp != bp,                  "OffChild: Base* は非0オフセット (static_cast 適用)");
+ok(c.baseAddr() == bp,        "OffChild: 継承 baseAddr() == 取り出した Base*");
+invalidate c;
+
+Debug.message("==== ncbindtest: pass=" + pass + " fail=" + fail + " ====");
+System.exit(fail == 0 ? 0 : 1);

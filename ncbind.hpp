@@ -86,6 +86,12 @@ struct ncbTypedefs {
 template <class T>
 struct ncbSubClassCheck { enum { IsSubClass = false }; };
 
+/// is-a 単一継承: 継承元(直近の基底)を指す型トレイト。
+/// NCB_REGISTER_SUBCLASS_OF で特殊化される。未継承クラスは BaseT=void。
+/// (名前空間ネストの ncbSubClassCheck とは別概念。詳細は ncbind_inheritance.md 参照)
+template <class T>
+struct ncbSubClassOf { typedef void BaseT; enum { HasBase = false }; };
+
 ////////////////////////////////////////
 /// NativeClass 名前/ID/クラスオブジェクト保持用
 template <class T>
@@ -209,6 +215,27 @@ public:
 			return false;
 		}
 		adp->_instance = instance;
+		iTJSNativeInstance *ni = static_cast<iTJSNativeInstance*>(adp);
+		if (TJS_FAILED(obj->NativeInstanceSupport(TJS_NIS_REGISTER, ClassInfoT::GetID(), &ni))) {
+			if (err) TVPThrowExceptionMessage(TJS_W("Adaptor registration failed."));
+			return false;
+		}
+		return true;
+	}
+
+	/// アップキャストした基底実体を「共有(非所有)」でアダプタ登録する
+	/// is-a 単一継承で、派生 classid 側が実体を所有・delete するため、
+	/// 基底 classid 側は sticky(=非削除) にして二重 delete を防ぐ。
+	static bool SetSharedNativeInstance(iTJSDispatch2 *obj, NativeClassT *instance, bool err = false) {
+		AdaptorT *adp = GetAdaptor(obj, false);
+		if (adp) {
+			if (adp->_instance) adp->_deleteInstance();
+		} else if (!(adp = new AdaptorT())) {
+			if (err) TVPThrowExceptionMessage(TJS_W("Create adaptor failed."));
+			return false;
+		}
+		adp->_instance = instance;
+		adp->_sticky   = true; //< 非所有
 		iTJSNativeInstance *ni = static_cast<iTJSNativeInstance*>(adp);
 		if (TJS_FAILED(obj->NativeInstanceSupport(TJS_NIS_REGISTER, ClassInfoT::GetID(), &ni))) {
 			if (err) TVPThrowExceptionMessage(TJS_W("Adaptor registration failed."));
@@ -1503,6 +1530,93 @@ protected:
 
 
 ////////////////////////////////////////
+/// is-a 単一継承サポート
+///
+/// C++ で既に継承関係にある実体 (Derived : public Base) を登録する際、
+/// 派生クラスの登録記述を「追加メンバのみ」に留めつつ、基底クラスの定義を
+/// すべて引き継ぎ、instanceof と型別ポインタ取得を自動化する。
+/// 詳細な設計は ncbind_inheritance.md を参照。
+
+/// construct 時に、祖先クラス名の CII_ADD と、アップキャストした同一実体の
+/// 共有登録を、基底 → その基底 … と再帰的に行う。
+template <class T, class BASE = typename ncbSubClassOf<T>::BaseT>
+struct ncbAncestorAttacher {
+	static void Attach(iTJSDispatch2 *objthis, T *self) {
+		if (!objthis || !self) return;
+		BASE *base = static_cast<BASE*>(self); //< C++ の正しいアップキャスト(offset調整込み)
+		// instanceof 用に基底クラス名を追加
+		tTJSVariant name(ncbClassInfo<BASE>::GetName());
+		objthis->ClassInstanceInfo(TJS_CII_ADD, 0, &name);
+		// 基底 classid にアップキャスト実体を sticky(非所有) で登録
+		ncbInstanceAdaptor<BASE>::SetSharedNativeInstance(objthis, base);
+		// さらに上位の祖先へ
+		ncbAncestorAttacher<BASE>::Attach(objthis, base);
+	}
+};
+template <class T>
+struct ncbAncestorAttacher<T, void> {
+	static void Attach(iTJSDispatch2 *, T *) {}
+};
+
+/// construct 直後に呼ぶ: 派生実体を取得して祖先 attach を起動する
+template <class CLASS>
+inline void ncbSubClassAttachAncestors(iTJSDispatch2 *objthis) {
+	CLASS *self = ncbInstanceAdaptor<CLASS>::GetNativeInstance(objthis);
+	if (self) ncbAncestorAttacher<CLASS>::Attach(objthis, self);
+}
+
+/// 継承対応コンストラクタ: 通常 construct の後に祖先 attach を行う
+template <class CommandT, class CLASS>
+struct ncbNativeSubClassConstructor : public ncbNativeClassConstructor<CommandT> {
+	typedef ncbNativeClassConstructor<CommandT> InheritedT;
+	typedef ncbNativeSubClassConstructor        ThisClassT;
+	typedef typename InheritedT::MethodT        MethodT;
+	typedef ncbNativeClassMethodBase::iMethodT  iMethodT;
+	ncbNativeSubClassConstructor(MethodT m) : InheritedT(m) {}
+	tjs_error TJS_INTF_METHOD FuncCall(
+		tjs_uint32 flag, const tjs_char *membername, tjs_uint32 *hint,
+		tTJSVariant *result, tjs_int numparams, tTJSVariant **param, iTJSDispatch2 *objthis)
+	{
+		tjs_error r = InheritedT::FuncCall(flag, membername, hint, result, numparams, param, objthis);
+		if (!membername && r == TJS_S_OK) ncbSubClassAttachAncestors<CLASS>(objthis);
+		return r;
+	}
+	static iMethodT Create(MethodT m, bool create = true) { return !create ? 0 : (new ThisClassT(m))->GetIMethod(); }
+};
+
+/// 継承対応ファクトリ (RawCallback Factory 用)
+template <class CLASS>
+struct ncbNativeSubClassFactory : public ncbNativeClassFactory<CLASS> {
+	typedef ncbNativeClassFactory<CLASS>        InheritedT;
+	typedef ncbNativeSubClassFactory            ThisClassT;
+	typedef typename InheritedT::MethodT        MethodT;
+	typedef ncbNativeClassMethodBase::iMethodT  iMethodT;
+	ncbNativeSubClassFactory(MethodT m) : InheritedT(m) {}
+	tjs_error TJS_INTF_METHOD FuncCall(
+		tjs_uint32 flag, const tjs_char *membername, tjs_uint32 *hint,
+		tTJSVariant *result, tjs_int numparams, tTJSVariant **param, iTJSDispatch2 *objthis)
+	{
+		tjs_error r = InheritedT::FuncCall(flag, membername, hint, result, numparams, param, objthis);
+		if (!membername && r == TJS_S_OK) ncbSubClassAttachAncestors<CLASS>(objthis);
+		return r;
+	}
+	static iMethodT Create(MethodT m, bool create = true) { return !create ? 0 : (new ThisClassT(m))->GetIMethod(); }
+};
+
+/// Constructor / InvokeCommand-Factory 用 NCM 型セレクタ (継承有無で分岐)
+template <class CLASS, class CommandT, class BASE = typename ncbSubClassOf<CLASS>::BaseT>
+struct ncbCtorSelect                        { typedef ncbNativeSubClassConstructor<CommandT, CLASS> Type; };
+template <class CLASS, class CommandT>
+struct ncbCtorSelect<CLASS, CommandT, void> { typedef ncbNativeClassConstructor<CommandT>           Type; };
+
+/// RawCallback Factory 用 NCM 型セレクタ
+template <class CLASS, class BASE = typename ncbSubClassOf<CLASS>::BaseT>
+struct ncbFactorySelect              { typedef ncbNativeSubClassFactory<CLASS> Type; };
+template <class CLASS>
+struct ncbFactorySelect<CLASS, void> { typedef ncbNativeClassFactory<CLASS>    Type; };
+
+
+////////////////////////////////////////
 
 template <class PropCommandT>
 struct ncbNativeClassProperty : public ncbNativeClassMethodBase {
@@ -1808,7 +1922,9 @@ public:
 	/// コンストラクタを登録する
 	template <typename MethodT>
 	void Constructor(TypeWrap<MethodT>) {
-		DoItem(GetName(), ncbNativeClassConstructor< InvokeCommand<ClassT, MethodT, ivtCtor> >::Create(0, _isRegist));
+		typedef InvokeCommand<ClassT, MethodT, ivtCtor>     CmdT;
+		typedef typename ncbCtorSelect<ClassT, CmdT>::Type  CtorT; //< 継承時は祖先 attach 版
+		DoItem(GetName(), CtorT::Create(0, _isRegist));
 	}
 	// デフォルトコンストラクタの登録
 	void Constructor(int dummy = 0) { Constructor(TypeWrap<void (_ClassT::*)()>()); }
@@ -1833,12 +1949,15 @@ public:
 	// ファクトリを登録
 	template <typename MethodT>
 	void Factory(MethodT m) {
-		DoItem(GetName(), ncbNativeClassConstructor< InvokeCommand<ClassT, MethodT, ivtFactory> >::Create(m, _isRegist));
+		typedef InvokeCommand<ClassT, MethodT, ivtFactory>  CmdT;
+		typedef typename ncbCtorSelect<ClassT, CmdT>::Type  CtorT; //< 継承時は祖先 attach 版
+		DoItem(GetName(), CtorT::Create(m, _isRegist));
 	}
 	// RawCallback Factory
 	void RawCallback(typename ncbNativeClassFactory<ClassT>::MethodT m) { Factory(m); }
 	void Factory(    typename ncbNativeClassFactory<ClassT>::MethodT m) {
-		DoItem(GetName(),     ncbNativeClassFactory<ClassT>::Create(m, _isRegist));
+		typedef typename ncbFactorySelect<ClassT>::Type     FactoryT; //< 継承時は祖先 attach 版
+		DoItem(GetName(),     FactoryT::Create(m, _isRegist));
 	}
 
 	/// RawCallback Method
@@ -2228,6 +2347,80 @@ protected:
 #define NCB_REGISTER_CLASS_DIFFER(name, cls) \
 	NCB_TYPECONV_BOXING(cls); \
 	NCB_REGISTER_CLASS_COMMON(cls, ncbNativeClassAutoRegister, (TJS_W(# name)))
+
+////////////////////////////////////////
+/// is-a 単一継承: 基底クラスオブジェクトのメンバを派生クラスオブジェクトへコピーする。
+/// 全クラス登録後 (PostRegist) に一括実行することで登録順に依存しない。
+/// 派生に既存のメンバ・基底コンストラクタ・finalize はスキップ (override 優先)。
+/// 多段継承は各祖先の実体を直接辿ってコピーする。
+template <class CLASS, class BASE = typename ncbSubClassOf<CLASS>::BaseT>
+struct ncbSubClassMemberCopy {
+	// メンバ列挙コールバック
+	struct Copier : public tTJSDispatch {
+		iTJSDispatch2  *Dest;     //< コピー先(派生クラスオブジェクト)
+		const tjs_char *SkipCtor; //< 基底コンストラクタ名(スキップ対象)
+		tjs_error TJS_INTF_METHOD FuncCall(
+			tjs_uint32 flag, const tjs_char *membername, tjs_uint32 *hint,
+			tTJSVariant *result, tjs_int numparams, tTJSVariant **param, iTJSDispatch2 *objthis)
+		{
+			// *param[0]=name *param[1]=flags *param[2]=value
+			if (numparams >= 3 && param[0] && param[0]->Type() == tvtString) {
+				const tjs_char *name  = param[0]->GetString();
+				tjs_uint32      flags = (tjs_uint32)(tjs_int)*param[1];
+				bool skip =
+					(SkipCtor && !TJS_strcmp(name, SkipCtor)) ||   //< 基底コンストラクタ
+					!TJS_strcmp(name, TJS_W("finalize"));          //< finalize
+				if (!skip) {
+					// 派生に既にあるメンバは上書きしない (getter を起動しないよう IGNOREPROP)
+					tTJSVariant tmp;
+					if (Dest->PropGet(TJS_IGNOREPROP, name, NULL, &tmp, Dest) == TJS_S_OK) skip = true;
+				}
+				if (!skip) {
+					// クラスオブジェクト→クラスオブジェクトのコピーでは objthis(=null) を
+					// 保持する。ここで束ねると、インスタンス生成時のメンバ流し込み
+					// (tTJSNativeClass::FuncCall) でインスタンスへ再束縛されず
+					// 「実行コンテキストが違います」になる。
+					tTJSVariant val = *param[2];
+					Dest->PropSet(TJS_MEMBERENSURE | TJS_IGNOREPROP | flags, name, NULL, &val, Dest);
+				}
+			}
+			if (result) *result = (tjs_int)1;
+			return TJS_S_OK;
+		}
+	};
+	static void Copy() { CopyInto(ncbClassInfo<CLASS>::GetClassObject()); }
+
+	/// 派生クラスオブジェクト dst へ、BASE 以降の全祖先の own メンバをコピーする。
+	/// コピー先を dst に固定して祖先チェーンを辿るので、多段でも祖父メンバが届く。
+	/// 近い祖先から順に copy + skip-existing なので override 優先順も保たれる。
+	static void CopyInto(iTJSDispatch2 *dst) {
+		iTJSDispatch2 *base = ncbClassInfo<BASE>::GetClassObject();
+		if (dst && base) {
+			Copier cb;
+			cb.Dest     = dst;
+			cb.SkipCtor = ncbClassInfo<BASE>::GetName();
+			tTJSVariantClosure clo(&cb, (iTJSDispatch2*)NULL);
+			base->EnumMembers(TJS_IGNOREPROP, &clo, base);
+		}
+		ncbSubClassMemberCopy<BASE>::CopyInto(dst); //< 上位祖先も同じ dst へ
+	}
+};
+template <class CLASS>
+struct ncbSubClassMemberCopy<CLASS, void> {
+	static void Copy() {}
+	static void CopyInto(iTJSDispatch2 *) {}
+};
+
+/// C++ 継承済みクラス (cls : public base) を base の派生として登録する。
+/// 派生側は「追加メンバのみ」記述すれば base の定義を全て引き継ぐ。
+/// instanceof と型別ポインタ取得は自動化される。
+#define NCB_REGISTER_SUBCLASS_OF_DIFFER(name, cls, base) \
+	template <> struct ncbSubClassOf<cls> { typedef base BaseT; enum { HasBase = true }; }; \
+	static void ncbSubClassCopy_ ## cls () { ncbSubClassMemberCopy<cls>::Copy(); } \
+	NCB_POST_REGIST_CALLBACK(ncbSubClassCopy_ ## cls); \
+	NCB_REGISTER_CLASS_DIFFER(name, cls)
+
+#define NCB_REGISTER_SUBCLASS_OF(cls, base) NCB_REGISTER_SUBCLASS_OF_DIFFER(cls, cls, base)
 
 #define NCB_REGISTER_SUBCLASS_DELAY(cls) \
 	template <> struct ncbSubClassCheck<cls> { enum { IsSubClass = true }; }; \

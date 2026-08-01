@@ -27,6 +27,7 @@
 18. [tp_stub の基本型と API](#18-tp_stub-の基本型と-api)
 19. [ビルド設定](#19-ビルド設定)
 20. [制限事項と注意点](#20-制限事項と注意点)
+21. [単一継承 (is-a) — NCB_REGISTER_SUBCLASS_OF](#21-単一継承-is-a--ncb_register_subclass_of)
 
 ---
 
@@ -1134,10 +1135,11 @@ DLL ではなく本体に直接リンクする場合:
 
 ## 20. 制限事項と注意点
 
-### 継承非サポート
-登録したクラス間の継承関係は認識されません。
-`instanceof` で派生クラスのチェックはできず、
-引数に派生クラスインスタンスを渡すとエラーになります。
+### 継承 (単一継承のみサポート)
+既定 (`NCB_REGISTER_CLASS`) では登録クラス間の継承関係は認識されない
+(別クラス扱い / `instanceof` 不可 / 派生インスタンスを引数に渡すとエラー)。
+C++ で継承関係にある実体は **`NCB_REGISTER_SUBCLASS_OF`** で単一継承 (is-a) として
+登録できる → §21 を参照。
 
 ### コンストラクタは1つだけ
 1つのクラスに複数のコンストラクタを登録することはできません。
@@ -1160,3 +1162,71 @@ DLL ではなく本体に直接リンクする場合:
 - 参照で値を書き換えて返すメソッドは対応不可 → RawCallback で対処
 - 同じクラスの多重登録はエラー
 - const 返り値の参照/ポインタは const が解除される
+
+---
+
+## 21. 単一継承 (is-a) — NCB_REGISTER_SUBCLASS_OF
+
+C++ で既に継承関係にあるクラス (`Derived : public Base`) を、**Base の派生**として
+登録できます。派生クラスの登録ブロックには「**追加したメンバだけ**」を書けば、
+基底クラスの定義 (メソッド／プロパティ／定数) を**すべて自動で引き継ぎ**ます。
+基底メンバを個別にコピペ／再列挙する必要はありません。
+
+> 注意: §14 の `NCB_REGISTER_SUBCLASS` は「名前空間ネスト (has-a)」であり、
+> ここで説明する is-a 継承とは**別概念**です。混同しないでください。
+
+### 基本形
+
+```cpp
+// 基底: 通常どおり登録
+NCB_REGISTER_CLASS(Shape) {
+    Constructor();
+    NCB_METHOD(area);
+    NCB_PROPERTY(name, getName, setName);
+}
+
+// 派生 (Circle : public Shape): 追加分だけ記述する
+NCB_REGISTER_SUBCLASS_OF(Circle, Shape) {
+    Constructor();
+    NCB_METHOD(radius);   // area / name は Shape から自動継承される
+}
+```
+
+TJS2 から:
+
+```tjs
+var c = new Circle();
+c.radius();                     // 追加メソッド
+c.area();                       // 継承したメソッド (同一 C++ 実体を操作)
+c.name = "circle";              // 継承したプロパティ
+if (c instanceof "Shape") ...   // 真 (基底も自動判定)
+if (c instanceof "Circle") ...  // 真
+```
+
+### TJS2 名と C++ 名を変える
+
+```cpp
+NCB_REGISTER_SUBCLASS_OF_DIFFER(TJS2Name, CppDerived, CppBase) {
+    // ...
+}
+```
+
+### 振る舞い
+
+- **記述量最小**: 派生は追加メンバのみ。基底定義は全継承。
+- **instanceof 自動**: 派生・全祖先のクラス名が自動判定される。
+- **型別ポインタ取得**: 引数／返り値が基底型を要求すると、同一実体を
+  `static_cast` でアップキャストした**正しい基底ポインタ**が得られる
+  (派生型を要求すれば派生ポインタ)。単一継承の C++ オフセットも正しく処理される。
+- **override**: 同名メンバは派生側が優先される。
+- **多段継承**: 孫・ひ孫…と何段でも可。
+- **多重継承は非対応** (Squirrel/Sqrat 等と同じ単一継承のみ)。
+
+### 制約
+
+- 基底・派生とも ncbind 登録クラスであること。
+- 実体の所有 (delete) は派生 classid 側が行い、基底 classid 側は非所有 (sticky)。
+- メンバは「複製」であり委譲ではない (登録後に基底へメソッドを足しても
+  既存の派生インスタンスには波及しない)。
+
+設計の詳細・エンジン内部の根拠・実装上の注意点は `ncbind_inheritance.md` を参照。

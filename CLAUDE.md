@@ -42,7 +42,7 @@ NCB_REGISTER_CLASS(MyClass) {
 
 ## Known Limitations
 
-- No inheritance support between registered classes (no `instanceof` across class hierarchy)
+- Single inheritance (is-a) is supported for C++-derived classes via `NCB_REGISTER_SUBCLASS_OF(Derived, Base)` — the derived registration lists only added members and inherits all base definitions, with automatic `instanceof` across the hierarchy and type-correct (up-cast) native pointer extraction. Multi-level OK; multiple inheritance not supported. See `ncbind_inheritance.md`. (Plain `NCB_REGISTER_CLASS` remains flat / no inheritance.)
 - No default parameter values; argument count must match exactly
 - Only one constructor per class
 - Namespace-qualified classes must be typedef'd outside the namespace before registration
