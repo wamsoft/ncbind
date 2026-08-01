@@ -92,6 +92,12 @@ struct ncbSubClassCheck { enum { IsSubClass = false }; };
 template <class T>
 struct ncbSubClassOf { typedef void BaseT; enum { HasBase = false }; };
 
+/// is-a 単一継承: construct 直後に祖先クラス名の CII_ADD とアップキャスト実体の
+/// 共有登録を行う (定義は後方)。CreateAdaptor など ctor/factory NCM を経由しない
+/// 生成経路からも祖先 attach できるよう前方宣言しておく。
+/// 非継承クラス (BaseT=void) では no-op なので無条件に呼んでよい。
+template <class CLASS> inline void ncbSubClassAttachAncestors(iTJSDispatch2 *objthis);
+
 ////////////////////////////////////////
 /// NativeClass 名前/ID/クラスオブジェクト保持用
 template <class T>
@@ -266,6 +272,10 @@ public:
 		if (adp) {
 			adp->_instance = inst;
 			if (sticky) adp->setSticky();
+			// is-a 単一継承: コンバータ復路など ctor/factory NCM を経由しない生成でも
+			// 祖先クラス名の CII_ADD とアップキャスト実体の共有登録を行う。
+			// (非継承クラスは ncbSubClassOf<>::BaseT=void で no-op)
+			if (!sticky) ncbSubClassAttachAncestors<NativeClassT>(obj);
 		}
 		return obj;
 	}

@@ -256,6 +256,36 @@ WINVER/SDL 両ビルド + WINVER 実機 round-trip、**全23項目 pass**。
    `CopyInto(dst)` で dst を固定し、全祖先の own メンバを同じ dst へ流す（近い祖先から
    copy + skip-existing で override 順も維持）。
 
+### 3.7 追補（2026-08-01）: CreateAdaptor 経路でも祖先 attach する
+
+当初の祖先 attach は ctor / factory NCM（＝TJS の `new`）でしか走らなかった。
+しかし **コンバータ復路など `iTJSDispatch2` を直接生成する経路**（プラグインが
+C++ 側で生成したネイティブ実体を `ncbInstanceAdaptor<T>::CreateAdaptor()` で TJS
+オブジェクト化して返すケース。例: threepp の loader 戻り値・シーングラフ traversal）
+は `new` を通らないため、基底 classid の共有登録も基底名の CII_ADD も行われず、
+「その TJS オブジェクトを基底型引数へ渡すと実体が取り出せない / `instanceof 基底`
+が偽」という穴があった。
+
+対策として `CreateAdaptor()` が `_instance` を設定した直後に
+`ncbSubClassAttachAncestors<NativeClassT>(obj)` を呼ぶよう変更（前方宣言を
+`ncbSubClassOf` 付近に追加）。非継承クラスは `BaseT=void` で no-op なので無条件でよい。
+sticky 生成時（既にアップキャスト共有登録された実体を包む場合）は再 attach しないよう
+`!sticky` でガードする。
+
+### 3.8 応用例: shared_ptr ラッパ経由での is-a（krkrthreepp）
+
+`ThreeWrapper<T>`（`shared_ptr<T>` を保持するラッパを classid にするパターン）でも、
+**ラッパ自身を threepp の階層に沿って C++ 継承させれば** is-a を適用できる:
+
+- `ThreeWrapper<Derived> : public ThreeWrapper<Base>`（トレイト `ThreeBaseOf<T>` で基底を宣言）。
+  各レベルが自分の型の `shared_ptr` を持ち、`setObject` で基底へ `static_pointer_cast`
+  伝播する（基底 classid の Bridge が正しい raw ポインタを返せるように）。
+- `ncbSubClassOf<ThreeWrapper<T>>` を `ThreeBaseOf<T>` から自動導出する部分特殊化を1つ置く。
+- boxing 登録パス（`NCB_REGISTER_SUBCLASS`）でも ctor/factory select は共通ビルダ経由で
+  効くため、PostRegist メンバコピーを emit すれば member 継承も成立する。
+- 祖先 attach の穴（§3.7）はこのパターンで顕在化する（loader 戻り値が復路生成のため）。
+  §3.7 の CreateAdaptor 対応で解消。
+
 ## 4. 検証項目（実装後）
 
 krkrz 実機（`testbind` 相当）で round-trip 検証する:
