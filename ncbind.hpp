@@ -1972,6 +1972,26 @@ public:
 		DoItem(GetName(n), ncbRawCallbackProperty<GetterT, SetterT>::Create(g, s, flags, _isRegist));
 	}
 
+	/// 変更対象に同名メンバが既に無い場合のみ登録する版 (ATTACH 用)。
+	/// 本体が同名機能を提供している環境で、プラグイン側から上書きしないための版。
+	/// (旧い本体で未提供のときだけプラグインが機能を補完する用途)
+	/// Unregist 時は所有者(本体提供か自前登録か)を判別できないため削除しない
+	/// ── 本体提供分を誤って削除しないことを優先する。
+	template <typename NAME, typename MethodT>
+	void MethodIfMissing(NAME n, MethodT m) {
+		if (!_isRegist) return;                      // unregist はスキップ (誤削除防止)
+		_StringT s(GetName(n));
+		if (_impl.HasMember(s.c_str())) return;      // 既存メンバあり → 上書きしない
+		Method(n, m);
+	}
+	template <typename NAME, typename MethodT>
+	void RawCallbackIfMissing(NAME n, MethodT m, _FlagsT flags) {
+		if (!_isRegist) return;                      // unregist はスキップ (誤削除防止)
+		_StringT s(GetName(n));
+		if (_impl.HasMember(s.c_str())) return;      // 既存メンバあり → 上書きしない
+		RawCallback(n, m, flags);
+	}
+
 	/// サブクラスを登録する
 	template <typename NAME, typename CLASS>
 	void SubClass(NAME n, TypeWrap<CLASS>) {
@@ -2015,6 +2035,9 @@ struct ncbRegistNativeClassBase {
 	void UnregistItem(NameT)		{}
 	void UnregistEnd()				{}
 	void   RegistVariant(NameT, tTJSVariant const &, FlagsT) {}
+	/// 登録先に指定名メンバが既に存在するか (新規クラス生成系では常に false)。
+	/// ATTACH 系 (既存クラス変更) でのみ意味を持つ。RawCallbackIfMissing 等が使用。
+	bool   HasMember(NameT) const	{ return false; }
 
 	NameT  GetName() const {return _className; }
 protected:
@@ -2221,6 +2244,15 @@ struct ncbAttachTJS2Class : public ncbRegistNativeClassBase {
 
 	void RegistVariant(NameT name, tTJSVariant const &val, FlagsT flg) {
 		_tjs2ClassObj->PropSet(TJS_MEMBERENSURE | flg, name, 0, &val, ((flg & TJS_STATICMEMBER) ? _global : _tjs2ClassObj));
+	}
+
+	/// 変更対象クラスオブジェクトに指定名メンバが既に在るか
+	/// (getter を起動しないよう IGNOREPROP、未存在は MEMBERMUSTEXIST で失敗)。
+	bool HasMember(NameT name) const {
+		if (!_tjs2ClassObj) return false;
+		tTJSVariant tmp;
+		return TJS_SUCCEEDED(_tjs2ClassObj->PropGet(
+			TJS_MEMBERMUSTEXIST | TJS_IGNOREPROP, name, 0, &tmp, _tjs2ClassObj));
 	}
 
 	void RegistItem(NameT name, ItemT item) {
@@ -2510,6 +2542,10 @@ private:
 
 #define NCB_METHOD_DIFFER(name, method)                 Method(TJS_W(# name), &Class::method)
 #define NCB_METHOD(method)                              NCB_METHOD_DIFFER(method, method)
+
+// 既存メンバが無い場合のみ登録する版 (ATTACH で本体が同名を提供済みなら上書きしない)。
+#define NCB_METHOD_IF_MISSING_DIFFER(name, method)      MethodIfMissing(TJS_W(# name), &Class::method)
+#define NCB_METHOD_IF_MISSING(method)                   NCB_METHOD_IF_MISSING_DIFFER(method, method)
 
 #define NCB_METHOD_CAST(tag, result, method, args)      static_cast<MethodType<tag, result (*) args >::Type>(&method)  // tag = { Class, Const, Static }
 #define NCB_METHOD_DETAIL(name, T,R,M,A)                Method(TJS_W(# name), NCB_METHOD_CAST(T, R, M, A))
