@@ -902,7 +902,7 @@ C++ から操作するためのラッパクラスです。
 void processArray(iTJSDispatch2 *arrObj) {
     ncbPropAccessor arr(arrObj);
 
-    // 要素数の取得
+    // 要素数の取得 ★配列長は必ず GetArrayCount() を使う (下の注意を参照)
     tjs_int count = arr.GetArrayCount();
 
     // 値の取得 (インデックス指定)
@@ -921,6 +921,15 @@ void processArray(iTJSDispatch2 *arrObj) {
     if (arr.HasValue(3)) { /* ... */ }
 }
 ```
+
+> **⚠ 配列サイズは `GetArrayCount()`。`GetCount()` を使ってはいけない。**
+> `GetArrayCount()` は配列の **`count` プロパティ**を `PropGet` して返す = 論理的な要素数。
+> 一方 `GetCount()` は `iTJSDispatch2::GetCount()` を呼ぶ = **オブジェクトのプロパティ(メンバ)
+> 個数**であり、Array の要素数とは一致しない(内部実装依存の別値になる)。
+> `GetCount()` を要素数と誤認してループ境界に使うと、**配列後半の要素が読まれず**先頭の
+> 一部しか処理されない(しかもエラーにならないので気付きにくい)。辞書もキー数の取得は
+> `GetCount()` ではなく用途に応じた列挙 API を使うこと。要素数が要る配列アクセスは常に
+> `GetArrayCount()`。
 
 ### 辞書の操作
 
