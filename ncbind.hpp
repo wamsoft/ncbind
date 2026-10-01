@@ -2001,6 +2001,14 @@ public:
 		if (_impl.HasMember(s.c_str())) return;      // 既存メンバあり → 上書きしない
 		RawCallback(n, m, flags);
 	}
+	/// RawCallback Property の IF_MISSING 版
+	template <typename NAME, typename GetterT, typename SetterT>
+	void RawCallbackIfMissing(NAME n, GetterT g, SetterT st, _FlagsT flags) {
+		if (!_isRegist) return;                      // unregist はスキップ (誤削除防止)
+		_StringT s(GetName(n));
+		if (_impl.HasMember(s.c_str())) return;      // 既存メンバあり → 上書きしない
+		RawCallback(n, g, st, flags);
+	}
 
 	/// サブクラスを登録する
 	template <typename NAME, typename CLASS>
